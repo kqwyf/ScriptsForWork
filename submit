@@ -1,0 +1,467 @@
+#!/bin/bash
+
+# 本脚本用于方便灵活地提交sbatch任务。
+# 
+# 脚本使用示例：
+#     第一次使用时的准备工作：
+#     1. 将本脚本所在目录添加到环境变量`PATH`中。
+#     2. 在下方的Default Configurations中设定配置文件目录。
+#     3. 在配置文件目录下编写配置文件`01-espnet.sh`，文件内容见注释块之后的模
+#        板。
+#
+#     需要提交任务时：
+#     1. 在recipe目录下（假设你的recipe路径中包含关键词“espnet”）
+#        使用命令`submit -n wsj_data_prep -p cpu -- --stage 1 --stop_stage 4`提
+#        交一个数据准备任务。任务名为wsj_data_prep，在cpu节点上执行。
+#        使用命令`submit -n wsj_train -m 80G -- --stage 5 --stop_stage 6`提交一
+#        个模型训练任务。任务名为wsj_train，使用80G内存，在gpu节点上执行。
+#        提供给submit的参数将覆盖配置文件中的参数，没有提供给submit的参数将按照
+#        配置文件中的默认参数取值，配置文件中未出现的参数将按照下方默认配置块取
+#        值。
+#        所提交任务的标准输出和标准错误默认情况下将分别输出至`stdout/任务ID.txt`
+#        和`stderr/任务ID.txt`，可参考下方配置自行修改。
+# 
+# 脚本原理：
+#     1. 用户需在脚本中提供一个配置文件目录，用于设定在不同项目中的sbatch新任务
+#        默认参数。配置文件目录中的配置文件名格式为“xx-yyy.sh”，其中xx是编号，
+#        yyy是用于匹配工作目录的关键词，如`01-espnet.sh`会在当前工作目录路径中包
+#        含“espnet”时被匹配成功。编号用于规定扫描配置文件的顺序，脚本默认按字典
+#        序扫描配置文件，一旦成功匹配某一配置文件就结束扫描。
+#     2. 脚本将检测运行脚本时所在的工作路径，并依序扫描配置文件目录中的每个配置
+#        文件，选择第一个匹配的配置文件读入。若没有匹配的配置文件，则不读入任何
+#        配置文件，直接执行其余步骤。
+#        一种最佳实践：在配置文件目录下建立文件`99-你的用户名.yaml`，以便在所有配
+#        置文件均不适用时提供默认参数。这一文件中应当囊括所有可能的配置项。在创建
+#        其它配置文件时，通过复制并修改这一配置文件实现。
+#     3. 脚本根据配置文件和命令行参数生成适当的sbatch批处理文件，保存在系统临时
+#        目录`/tmp`下，并使用sbatch命令提交任务。此外，脚本还会在生成的批处理文
+#        件中指定stdout和stderr选项，即所提交任务的标准输出和标准错误输出在何
+#        处。在默认配置中，它们将保存在当前工作目录下的`stdout`和`stderr`目录
+#        中，以`任务ID.txt`命名。若这两个目录不存在，将由脚本自动创建。
+#     4. 成功提交后，获得任务ID，脚本将在工作目录下的`slurm`文件夹（若不存在则创
+#        建）中保存该任务的相关信息和批处理文件内容，文件名为`任务ID.txt`。此
+#        外，默认还将在家目录下的`.slurm_job_history`中写入提交任务历史。
+# 
+# 目前支持的参数：
+#     -e 或 --conda-env：选择所使用的conda环境。将使用`source activate xxx`激活
+#                        该环境。
+#     -r 或 --run：要运行的程序或脚本。脚本文件名前不需加`./`，我们会自动检测有
+#                  无指定的脚本文件，若无则将参数解释为可执行程序名。
+#     -a 或 --test：测试模式。在测试模式下不会提交任务，而是将生成的批处理文件内
+#                   容打印出来，供用户检查。
+#     -n 或 --name：任务名称。若不设置任务名称，将根据--run参数的内容自动取名。
+#                   在我们配套的其他脚本中有针对任务名提供的一系列便利功能，如根
+#                   据任务名杀死任务。
+#     -p 或 --partition：设置任务的提交队列。当设置为`cpu`时，gres参数将被自动置
+#                        空。
+#     -q 或 --qos：设置QOS。
+#     -m 或 --mem：设置内存大小。
+#     -c 或 --cpus-per-task：设置每个任务使用的CPU核心数，通常用于多线程任务。
+#     -u 或 --ntasks-per-node：设置每个节点执行的任务数。
+#     -g 或 --gres：设置gres。当partition参数被设置为`cpu`时，该项自动置空。
+#     -t 或 --time：设置执行时间。
+#     以--分隔后的其它参数：作为传给任务的命令行参数。
+# 
+# 配置文件模板见下方Default Configurations块中。
+
+set -euo pipefail
+
+config_dir="${HOME}/configs/submit" # We read specific default configs from here.
+
+###### Default Configurations ######
+# Global configurations
+global_history_file="${HOME}/.slurm_job_history" # The file to store the job history.
+stdout_dir="stdout" # The directory to store the content of stdout of the submitted jobs.
+stderr_dir="stderr" # The directory to store the content of stderr of the submitted jobs.
+info_dir="slurm" # The directory to store the information of the submitted slurm batch scripts.
+
+# Conda environment
+conda_env="espnet" # argument: -e or --conda-env
+
+# General configurations
+exec_target="run.sh" # argument: -r or --run
+extra_arguments="" # argument: --
+testing=false # argument: -a or --test.
+
+# sbatch arguments
+job_name="unnamed" # argument: -n or --name.
+partition="gpu" # argument: p
+qos="qd3" # argument: q
+mem="16G" # argument: m
+cpus_per_task=1 # argument: c
+ntasks_per_node=1 # argument: u
+gres="gpu:1" # argument: g
+output_file="${stdout_dir}/%j.txt"
+error_file="${stderr_dir}/%j.txt"
+info_file="${info_dir}"
+max_time="72:00:00" # argument: t
+
+# Warning thresholds
+cpus_per_task_thres=32
+ntasks_per_node_thres=8
+
+# Modules to be loaded
+modules="\
+module add anaconda/3
+module add cuda/10.1
+module add cudnn/7.6.1-cuda10.0
+module add imkl/2017.3.196
+module add gcc/5.4.0
+module add sox/14.4.2
+"
+####################################
+
+help_message="\
+    sbatch的包装脚本，用于提交slurm任务。
+
+参数:
+    -e 或 --conda-env：选择所使用的conda环境。将使用\`source activate\`激活该环
+                       境。
+    -r 或 --run：要运行的程序或脚本。脚本文件名前不需加\`./\`，程序将自动检测有
+                 无指定的脚本文件，若无则将参数解释为可执行程序名。
+    -a 或 --test：测试模式。在测试模式下不会提交任务，而是将生成的批处理文件内容
+                  打印出来，供用户检查。
+    -n 或 --name：任务名称。在我们配套的其他脚本中有针对任务名提供的一系列便利功
+                  能，如根据任务名杀死任务。
+    -p 或 --partition：设置任务的提交队列。当设置为\`cpu\`时，gres参数将被自动置
+                       空。
+    -q 或 --qos：设置QOS。
+    -m 或 --mem：设置内存大小。
+    -c 或 --cpus-per-task：设置每个任务使用的CPU核心数，通常用于多线程任务。
+    -u 或 --ntasks-per-node：设置每个节点执行的任务数。
+    -g 或 --gres：设置gres。当partition参数被设置为\`cpu\`时，该项自动置空。
+    -t 或 --time：设置执行时间。
+    以--分隔后的其它参数：作为传给任务的命令行参数。
+
+示例：
+    submit -r run.sh -n prep_and_train -m 40G -c 2 -t 72:00:00 -- --stage 1 --stop_stage 6
+"
+
+if [ $# -le 0 ]; then
+    echo "${help_message}"
+    exit 0
+fi
+
+
+
+
+
+# Scan and read the configuration file.
+current_work_dir=`pwd`
+for f in `ls ${config_dir} | grep "\.sh$" | sort`; do
+    filename=${f%.*} # remove the extension
+    keyword=${filename##*-} # remove the number
+    if [[ "${current_work_dir}" == *"${keyword}"* ]]; then
+        . ${config_dir}/${f} # load the configuration file
+        break
+    fi
+done
+
+
+
+
+
+# Some flags.
+job_name_used=false # flag to check if the job name argument is specified
+program_used=false # flag to check if the provided executable target is a program
+
+# We use getopt to parse options.
+args=$(getopt -l "help,conda-env:,run:,test,name:,partition:,qos:,mem:,cpus-per-task:,ntasks-per-node:,gres:,time:" -o "he:r:an:p:q:m:c:u:g:t:" -- "$@")
+if [ $? != 0 ]; then # there are some errors in the arguments
+    echo "ERROR: Some arguments cannot be recognized. Are there any arguments mistaken?" >&2
+    exit 1
+fi
+eval set -- "$args" # rearrange the arguments to a format that can be processed easily
+
+# Parse arguments. The error checking is done after.
+while [ $# -ge 1 ]; do
+    case "$1" in
+        --)
+            shift
+            extra_arguments="$@"
+            break
+            ;;
+        -h|--help)
+            echo "${help_message}"
+            exit 0
+            ;;
+        -e|--conda-env)
+            if [ "${2:0:1}" = "-" ]; then echo "ERROR: Any arguments cannot begin with -. Are there any mistakes?" >&2; exit 1; fi
+            conda_env=${2}
+            shift 2
+            ;;
+        -r|--run)
+            if [ "${2:0:1}" = "-" ]; then echo "ERROR: Any arguments cannot begin with -. Are there any mistakes?" >&2; exit 1; fi
+            exec_target="${2}"
+            if [ -f "./${exec_target}" ]; then
+                exec_command="./${exec_target}"
+            else
+                program_used=true
+                exec_command="${exec_target}"
+            fi
+            if ! ${job_name_used}; then # if job name is not specified, automatically set a job name
+                job_name=${exec_target}
+            fi
+            shift 2
+            ;;
+        -a|--test)
+            testing=true
+            shift
+            ;;
+        -n|--name)
+            if [ "${2:0:1}" = "-" ]; then echo "ERROR: Any arguments cannot begin with -. Are there any mistakes?" >&2; exit 1; fi
+            job_name_used=true
+            job_name=${2}
+            shift 2
+            ;;
+        -p|--partition)
+            if [ "${2:0:1}" = "-" ]; then echo "ERROR: Any arguments cannot begin with -. Are there any mistakes?" >&2; exit 1; fi
+            partition=${2}
+            shift 2
+            ;;
+        -q|--qos)
+            if [ "${2:0:1}" = "-" ]; then echo "ERROR: Any arguments cannot begin with -. Are there any mistakes?" >&2; exit 1; fi
+            qos=${2}
+            shift 2
+            ;;
+        -m|--mem)
+            if [ "${2:0:1}" = "-" ]; then echo "ERROR: Any arguments cannot begin with -. Are there any mistakes?" >&2; exit 1; fi
+            mem=${2}
+            shift 2
+            ;;
+        -c|--cpus-per-task)
+            if [ "${2:0:1}" = "-" ]; then echo "ERROR: Any arguments cannot begin with -. Are there any mistakes?" >&2; exit 1; fi
+            cpus_per_task=${2}
+            shift 2
+            ;;
+        -u|--ntasks-per-node)
+            if [ "${2:0:1}" = "-" ]; then echo "ERROR: Any arguments cannot begin with -. Are there any mistakes?" >&2; exit 1; fi
+            ntasks_per_node=${OPTARG}
+            shift 2
+            ;;
+        -g|--gres)
+            if [ "${2:0:1}" = "-" ]; then echo "ERROR: Any arguments cannot begin with -. Are there any mistakes?" >&2; exit 1; fi
+            gres=${2}
+            shift 2
+            ;;
+        -t|--time)
+            if [ "${2:0:1}" = "-" ]; then echo "ERROR: Any arguments cannot begin with -. Are there any mistakes?" >&2; exit 1; fi
+            max_time=${2}
+            shift 2
+            ;;
+    esac
+done
+
+
+
+
+
+# Check arguments.
+
+## Check conda environment.
+## This check often spends a lot of time, so we just skip it.
+#found_env=`conda env list | awk -v envname=${conda_env} '{
+#        if ($1 == envname) {
+#            printf "true";
+#            exit 0
+#        }
+#    } END{printf "false";}'`
+#if [ ${found_env} != "true" ]; then
+#    echo "ERROR: Conda environment '${conda_env}' not found. Exit." >&2
+#    exit 1
+#fi
+
+## Check script/program name.
+if [ ! ${program_used} ]; then
+    if ! [ -f "${exec_target}" -a -x "${exec_target}" ]; then
+        echo "ERROR: File ${exec_target} not exists or cannot be executed. Exit." >&2
+        exit 1
+    fi
+else
+    if [ ! `which "${exec_command}"` ]; then
+        echo "ERROR: Program ${exec_command} not found. Exit." >&2
+        exit 1
+    fi
+fi
+
+## Check job name.
+found_job=`squeue -o '%30j' -u $(whoami) | tail -n +2 | awk -v jobname=${job_name} '
+    BEGIN {
+        found="false";
+    } {
+        if ($1 == jobname) {
+            found="true";
+            exit 0;
+        }
+    } END {
+        print found;
+    }'`
+if [ ${found_job} = "true" ]; then
+    echo "ERROR: Job name '${job_name}' already exists. Exit." >&2
+    exit 1
+fi
+
+## Check partition name.
+if [ "${partition}" != "cpu" -a "${partition}" != "gpu" -a "${partition}" != "2080ti" ]; then
+    echo "ERROR: Partition should be one of 'cpu', 'gpu' and '2080ti'. Exit." >&2
+    exit 1
+fi
+
+## Check QoS.
+if [ "${qos}" != "qd3" -a "${qos}" != "qm15" -a "${qos}" != "qd7" ]; then
+    echo "ERROR: QoS should be one of 'qd3', 'qm15' and 'qd7'. Exit." >&2
+    exit 1
+fi
+
+## Check memory limit.
+mem_regexp='^[1-9][0-9]*[KMGT]$'
+if ! [[ ${mem} =~ ${mem_regexp} ]]; then
+    echo "ERROR: Memory size '${mem}' is not in correct format. Exit." >&2
+    exit 1
+fi
+
+## Check the number of threads.
+int_regexp='^[1-9][0-9]*$'
+if ! [[ ${cpus_per_task} =~ ${int_regexp} ]]; then
+    echo "ERROR: Thread number '${cpus_per_task}' is not an integer. Exit." >&2
+    exit 1
+fi
+
+## Check the number of tasks.
+int_regexp='^[1-9][0-9]*$'
+if ! [[ ${ntasks_per_node} =~ ${int_regexp} ]]; then
+    echo "ERROR: Task number '${ntasks_per_node}' is not an integer. Exit." >&2
+    exit 1
+fi
+
+
+
+
+
+# Check the warning thresholds.
+
+## Check the number of threads.
+if [ ${cpus_per_task} -gt ${cpus_per_task_thres} ]; then
+    echo "WARNING: Thread number is ${cpus_per_task}. Is it too large?" >&2
+    echo "         Process will sleep 10 seconds and then go on." >&2
+    echo "         You can cancel this submit by pressing Ctrl+C." >&2
+    sleep 10
+fi
+
+## Check the number of tasks.
+if [ ${ntasks_per_node} -gt ${ntasks_per_node_thres} ]; then
+    echo "WARNING: Task number is ${ntasks_per_node}. Is it too large?" >&2
+    echo "         Process will sleep 10 seconds and then go on." >&2
+    echo "         You can cancel this submit by pressing Ctrl+C." >&2
+    sleep 10
+fi
+
+
+
+
+
+# Post-processing.
+## If the partition is 'cpu', clear 'gres'.
+if [ "${partition}" = "cpu" ]; then
+    gres=""
+    gres_line=""
+else
+    gres_line="#SBATCH --gres=${gres}"
+fi
+
+
+
+
+
+# Print arguments.
+echo "INFO: Accepted arguments:
+    Anaconda environment: ${conda_env}
+    Script: ${exec_target}
+        Script arguments: ${extra_arguments}
+    Job name: ${job_name}
+    Number of tasks: ${ntasks_per_node}
+    Partition: ${partition}
+    Gres: ${gres:-(None)}
+    QoS: ${qos}
+    Number of threads: ${cpus_per_task}
+    Memory: ${mem}
+    Time: ${max_time}
+" >&2
+
+# Generate slurm batch script. 'sbs' stands for "slurm batch script".
+sbs="\
+#!/bin/bash
+#SBATCH --job-name=${job_name}
+#SBATCH --ntasks-per-node=${ntasks_per_node}
+#SBATCH --partition=${partition}
+${gres_line}
+#SBATCH --qos=${qos}
+#SBATCH --cpus-per-task=${cpus_per_task}
+#SBATCH --mem=${mem}
+#SBATCH --time=${max_time}
+#SBATCH --output=${output_file}
+#SBATCH --error=${error_file}
+
+${modules}
+
+source activate ${conda_env}
+${exec_command} ${extra_arguments}
+"
+
+if ${testing}; then
+    echo "INFO: Generated sbatch script:"
+    echo "${sbs}"
+    exit 0
+fi
+
+
+
+
+
+# Submit the job.
+
+## Create directories for storing stdout and stderr files.
+mkdir -p ${stdout_dir}
+mkdir -p ${stderr_dir}
+
+## Write to a temp file and submit it to sbatch.
+tmp_sbs_file=`mktemp --suffix .slurm`
+echo "${sbs}" > ${tmp_sbs_file}
+echo "INFO: A sbatch script is written to ${tmp_sbs_file} . Submitting..." >&2
+sbatch_out=`sbatch ${tmp_sbs_file} || echo "ERROR"`
+if [ "${sbatch_out}" = "ERROR" ]; then
+    echo "ERROR: sbatch failed." >&2
+    exit 1
+elif [ -z "${sbatch_out}" ]; then
+    echo "ERROR: sbatch returns an empty string." >&2
+    exit 1
+fi
+
+## Get the job id.
+job_id=`echo "${sbatch_out}" | awk '{print $4}'`
+int_regexp='^[1-9][0-9]*$'
+if ! [[ ${job_id} =~ ${int_regexp} ]]; then
+    echo "ERROR: Job id returned by sbatch is not an integer." >&2
+    exit 1
+fi
+
+echo "INFO: Job ${job_id} is submitted successfully at `date`."
+
+## Save the job information.
+mkdir -p ${info_dir}
+work_dir=`pwd`
+work_dir=`realpath --relative-to="${HOME}" ${work_dir}` # get the relative path from the home directory
+info_file=${info_dir}/${job_id}.txt
+echo "\
+====== Slurm batch script ======
+${sbs}
+================================
+
+Job id: ${job_id}
+Submit time: `date`
+Work dir: ${work_dir}
+" > ${info_file}
+
+## Update the job history.
+echo ${job_id} ${job_name} ${work_dir} >> ${global_history_file}
+

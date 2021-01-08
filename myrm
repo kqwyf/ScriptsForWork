@@ -1,0 +1,38 @@
+#!/bin/bash
+
+if [ $# -lt 1 ]; then
+    echo "Too few arguments." >&2
+    exit 1
+fi
+
+deldir=false
+OPTIND=1
+while getopts "r" opt; do
+    case "${opt}" in
+        r)
+            deldir=true
+            ;;
+    esac
+done
+shift $((OPTIND-1))
+
+for arg in $*; do
+    if ! [ -e ${arg} ]; then
+        echo "File not exists" >&2
+        exit 1
+    fi
+    filepath=`readlink -f ${arg}`
+    filedir=${filepath%/*}
+    reldir=${filedir:28}
+    mkdir -p ~/.trash/${reldir}
+    if [ -d ${arg} ]; then
+        if ! ${deldir}; then
+            echo "Cannot remove a directory." >&2
+            exit 1
+        else
+            rm -rf ~/.trash/${reldir}/${arg}
+        fi
+    fi
+    mv ${arg} ~/.trash/${reldir}/
+done
+
