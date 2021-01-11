@@ -1,0 +1,91 @@
+#!/bin/bash
+
+# 本脚本用于取消已提交的slurm任务。
+#
+# 脚本使用示例：
+#     cancel libri_data_prep wsj_train 21807777
+#     可以在输入任务名或任务ID的一部分前缀后按Tab补全。
+#     此外，还可使用
+#     cancel ALL
+#     结束所有任务。
+#
+# 脚本原理：
+#     通过squeue列出当前用户的所有任务，从中匹配任务名和任务ID（我们不关心优先匹
+#     配哪一项，因为任务名通常不会与任务ID冲突），无法匹配时报错。当脚本成功运行
+#     时，不会进行任何输出。
+#     由于无法匹配多半是由于输入错误（例如不小心输入多余的空格），因此在某一项无
+#     法匹配时，所有指定的取消动作都不会被执行。
+#     该脚本有配套的自动补全脚本用于补全任务名和任务ID。
+#
+# 自动补全说明：
+#     若要使用自动补全，需要将附带的补全脚本放置在合适的位置，并且执行以下操作：
+#         若使用bash，需要在bashrc中加入一行：
+#             source /path/to/cancel-completion.bash
+#             bash会读入该脚本。
+#         若使用zsh，需要在zshrc中加入一行：
+#             fpath=(/dir/to/completion/scripts $fpath)
+#             zsh会读入该目录下所有补全脚本。
+#     进行上述配置后，需要重启shell。
+
+set -euo pipefail
+
+help_message="\
+    scancel的包装脚本，用于取消已提交的slurm任务。
+
+示例：
+    cancel libri_data_prep wsj_train 21807777
+    cancel ALL
+"
+
+if [ $# -le 0 ]; then
+    echo "${help_message}"
+    exit 0
+fi
+
+if [ "$1" = "ALL" ]; then
+    echo "WARNING: ALL THE JOBS will be cancelled after 5 seconds."
+    echo "         Press Ctrl+C to exit."
+    sleep 5
+    for job_id in `squeue -o '%64i' -u $(whoami) | tail -n +2`; do
+        scancel ${job_id}
+    done
+    exit 0
+fi
+
+found_jobs=`squeue -o '%64i %64j' -u $(whoami) | tail -n +2 | awk -v names_str="$*" '
+    BEGIN {
+        split(names_str, names, " ");
+        arr_len = 0;
+    } {
+        for (i in names) {
+            if ($1 == names[i] || $2 == names[i]) {
+                result[arr_len] = $1;
+                delete names[i];
+                arr_len++;
+                next;
+            }
+        }
+    } END {
+        if (length(names) > 0) {
+            for (i in names) {
+                if (i == 1) {
+                    printf names[i]
+                } else {
+                    printf ", " names[i]
+                }
+            }
+            print ""
+            print "false"
+        } else {
+            for (i in result) {
+                print result[i];
+            }
+        }
+    }'`
+if [ `echo "${found_jobs}" | tail -n 1` = "false" ]; then
+    echo "ERROR: Job(s) `echo "${found_jobs}" | head -n 1` doesn't exist. Exit." >&2
+    exit 1
+fi
+
+scancel ${found_jobs}
+

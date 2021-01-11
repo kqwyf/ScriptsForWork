@@ -66,7 +66,7 @@
 
 set -euo pipefail
 
-config_dir="${HOME}/configs/submit" # We read specific default configs from here.
+config_dir="${HOME}/Configs/submit" # We read specific default configs from here.
 
 ###### Default Configurations ######
 # Global configurations
@@ -285,7 +285,7 @@ else
 fi
 
 ## Check job name.
-found_job=`squeue -o '%30j' -u $(whoami) | tail -n +2 | awk -v jobname=${job_name} '
+found_job=`squeue -o '%64j' -u $(whoami) | tail -n +2 | awk -v jobname=${job_name} '
     BEGIN {
         found="false";
     } {
@@ -296,7 +296,7 @@ found_job=`squeue -o '%30j' -u $(whoami) | tail -n +2 | awk -v jobname=${job_nam
     } END {
         print found;
     }'`
-if [ ${found_job} = "true" ]; then
+if [ "${found_job}" = "true" ]; then
     echo "ERROR: Job name '${job_name}' already exists. Exit." >&2
     exit 1
 fi
