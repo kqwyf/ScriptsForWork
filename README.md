@@ -28,7 +28,9 @@
     - `submit -r run.sh -n prep_and_train -m 40G -c 2 -t 72:00:00 -- --stage 1 --stop_stage 6`
 
       本例中指定需要运行的脚本为`run.sh`，指定任务名为`prep_and_train`，指定使用内存上限为`40G`，指定线程数为`2`，指定时间限制为`72:00:00`，其余运行参数采用默认值（例如使用conda环境`espnet`）。在双横线`--`后为`run.sh`需要接受的参数，即`--stage 1 --stop_stage 6`。
+
       `submit`支持的所有参数可以直接运行`submit`查看，也可进入脚本查看。
+
       本例将生成以下sbatch批处理文件并提交：
       ```bash
       #!/bin/bash
@@ -57,6 +59,7 @@
     - `submit -r run.sh -n data_prep -p cpu -m 40G -c 2 -t 72:00:00 -- --stage 1 --stop_stage 4`
 
       本例相对上例，主要修改为指定提交队列为`cpu`。当提交队列为`cpu`时，脚本将自动删除`gres`参数，即不申请GPU资源。
+
       本例将生成以下sbatch批处理文件并提交：
       ```bash
       #!/bin/bash
@@ -83,6 +86,7 @@
       ./run.sh --stage 1 --stop_stage 4
       ```
 - `cancel`：使用任务名或任务ID取消任务。附带bash和zsh的补全功能，可使用Tab补全任务名和任务ID。
+
   由于通常任务名与任务ID不会冲突，故本脚本没有特别约定优先匹配任务名或任务ID。
   - 补全配置：`cancel`对应的补全脚本在仓库的`completions`目录中。
     - 若使用bash，需要在bashrc中加入一行：
