@@ -87,8 +87,10 @@
       ```
 - `cancel`：使用任务名或任务ID取消任务。附带bash和zsh的补全功能，可使用Tab补全任务名和任务ID。
 
+  **目前脚本假定队列中不存在重名任务，故只取消第一个匹配任务，未来将改进为取消所有同名任务。**
+
   由于通常任务名与任务ID不会冲突，故本脚本没有特别约定优先匹配任务名或任务ID。
-  - 补全配置：`cancel`对应的补全脚本在仓库的`completions`目录中。
+  - 补全配置：补全脚本在仓库的`completions`目录中。
     - 若使用bash，需要在bashrc中加入一行：
       ```
       source /path/to/cancel-completion.bash
