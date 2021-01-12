@@ -87,6 +87,10 @@
       source activate espnet
       ./run.sh --stage 1 --stop_stage 4
       ```
+    - `submit -r python -n my_train -m 40G -c 2 -t 72:00:00 -- local/my_network/train.py --train_config conf/my_train.yaml`
+
+      本例展示了如何执行不具有执行权限的脚本`local/my_network/train.py`。
+
 - `cancel`：使用任务名或任务ID取消任务。附带bash和zsh的补全功能，可使用Tab补全任务名和任务ID。
 
   **目前脚本假定队列中不存在重名任务，故只取消第一个匹配任务。未来将改进为取消所有同名任务。**
