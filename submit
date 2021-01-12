@@ -3,10 +3,9 @@
 # 本脚本用于方便灵活地提交sbatch任务。
 # 
 # 脚本使用示例：
-#     第一次使用时的准备工作：
-#     1. 将本脚本所在目录添加到环境变量`PATH`中。
-#     2. 在下方的Default Configurations中设定配置文件目录。
-#     3. 在配置文件目录下编写配置文件`01-espnet.sh`，文件内容见注释块之后的模
+#     第一次使用时的准备工作（非必需）：
+#     1. 在下方的Default Configurations中设定配置文件目录。
+#     2. 在配置文件目录下编写配置文件`01-espnet.sh`，文件内容见注释块之后的模
 #        板。
 #
 #     需要提交任务时：
@@ -66,7 +65,7 @@
 
 set -euo pipefail
 
-config_dir="${HOME}/Configs/submit" # We read specific default configs from here.
+config_dir="" # We read specific default configs from here.
 
 ###### Default Configurations ######
 # Global configurations
@@ -147,15 +146,17 @@ fi
 
 
 # Scan and read the configuration file.
-current_work_dir=`pwd`
-for f in `ls ${config_dir} | grep "\.sh$" | sort`; do
-    filename=${f%.*} # remove the extension
-    keyword=${filename##*-} # remove the number
-    if [[ "${current_work_dir}" == *"${keyword}"* ]]; then
-        . ${config_dir}/${f} # load the configuration file
-        break
-    fi
-done
+if ! [ -z "${config_dir}" ]; then
+    current_work_dir=`pwd`
+    for f in `ls "${config_dir}" | grep "\.sh$" | sort`; do
+        filename=${f%.*} # remove the extension
+        keyword=${filename##*-} # remove the number
+        if [[ "${current_work_dir}" == *"${keyword}"* ]]; then
+            . ${config_dir}/${f} # load the configuration file
+            break
+        fi
+    done
+fi
 
 
 
