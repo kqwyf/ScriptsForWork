@@ -1,12 +1,12 @@
 #!/bin/bash
 
-# 本脚本用于为文件名或目录名加入以点号分隔的后缀名。
-# 等价于命令'mv xxx xxx.suffix'。
-# 与本脚本对应的脚本为rma，用于移除后缀名。
+# 本脚本用于移除文件名或目录名中以点号分隔的第一个后缀名。
+# 等价于命令'mv xxx.suffix xxx'。
+# 与本脚本对应的脚本为app，用于添加后缀名。
 #
 # 脚本使用示例：
-#     app lr1e-3 exp/train_a exp/train_b exp/train_c
-#     以上命令将exp/train_a等三个文件夹分别重命名为exp/train_a.lr1e-3等。
+#     rma exp/train_a.lr1e-3 exp/train_b.lr1e-3 exp/train_c.lr1e-3
+#     以上命令将exp/train_a.lr1e-3等三个文件夹中的".lr1e-3"后缀名去除。
 #
 # 参数：
 #     -f 或 --force：强制修改，即若修改后的名称与已有文件/目录冲突，则覆盖之。
@@ -14,25 +14,20 @@
 set -euo pipefail
 
 help_message="\
-    用于为文件名或目录名加入以点号分隔的后缀名。
-    等价于命令`mv xxx xxx.suffix`。
-    与本脚本对应的脚本为rma，用于移除后缀名。
+    用于移除文件名或目录名中以点号分隔的第一个后缀名。
+    等价于命令'mv xxx.suffix xxx'。
+    与本脚本对应的脚本为app，用于添加后缀名。
 
 参数:
     -f 或 --force：强制修改，即若修改后的名称与已有文件/目录冲突，则覆盖之。
 
 示例：
-    app lr1e-3 exp/train_a exp/train_b exp/train_c
+    rma exp/train_a.lr1e-3 exp/train_b.lr1e-3 exp/train_c.lr1e-3
 "
 
 if [ $# -le 0 ]; then
     echo "${help_message}"
     exit 0
-fi
-
-if [ $# -lt 2 ]; then
-    echo "ERROR: Too few arguments." >&2
-    exit 1
 fi
 
 # Some flags
@@ -64,18 +59,21 @@ while [ $# -ge 1 ]; do
     esac
 done
 
-suffix=${1}
-shift 1
-
 for f; do # bash 'for' iterate "$@" by default
     if ! [ -e "${f}" ]; then
         echo "WARNING: File '${f}' doesn't exist. Skipped." >&2
         continue
     fi
-    if [ -e "${f}.${suffix}" -a "${force}" = "false" ]; then
-        echo "WARNING: File '${f}.${suffix}' exists. Skipped." >&2
+    suffix=${f##*.}
+    if [ "${suffix}" = "${f}" ]; then
+        echo "WARNING: File '${f}' doesn't have a suffix. Skipped." >&2
         continue
     fi
-    mv -f "${f}" "${f}.${suffix}"
+    newname=${f:0:${#f}-${#suffix}-1}
+    if [ -e "${newname}" -a "${force}" = "false" ]; then
+        echo "WARNING: File '${newname}' exists. Skipped." >&2
+        continue
+    fi
+    mv -f ${f} ${newname}
 done
 
