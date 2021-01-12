@@ -15,7 +15,7 @@ set -euo pipefail
 
 help_message="\
     用于为文件名或目录名加入以点号分隔的后缀名。
-    等价于命令`mv xxx xxx.suffix`。
+    等价于命令'mv xxx xxx.suffix'。
     与本脚本对应的脚本为rma，用于移除后缀名。
 
 参数:
