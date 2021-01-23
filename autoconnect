@@ -1,0 +1,121 @@
+#!/bin/bash
+
+# 本脚本（以及配套的'send'、'recv'脚本）的主要目的为在保持安全性的同时，快速进行
+# 登录服务器时的身份验证。支持使用明文密码、密文密码（以私钥加密，每次登录时自动
+# 临时解密）、私钥进行身份验证。
+#
+# 脚本使用示例：
+#     第一次使用时的准备工作：
+#     1. 在下方的config_dir处设置配置文件目录。
+#     2. 在设定的目录中编写配置文件，如sz.sh。配置文件模板见本仓库'hosts'目录下
+#        的'default.sh'文件。建议在配置文件目录中保留一个'default.sh'文件，并通
+#        过复制模板建立新配置。
+#
+#     需要登录服务器时（以刚刚建立的配置文件'sz.sh'为例）：
+#     1. 执行命令`autoconnect sz`。
+#
+# 脚本原理见配置文件模板。
+
+config_dir=""
+default_config="default"
+
+_host=${1}
+
+# Check dependencies.
+if ! which expect > /dev/null; then
+    echo "ERROR: Program 'expect' not found. It is necessary for entering password automatically." 1>&2
+    echo "       Usually you can find it in the software repository of your Linux distribution." 1>&2
+    exit 1
+elif ! which openssl > /dev/null; then
+    echo "WARNING: Program 'openssl' not found. It is used to decrypt your encrypted password." 1>&2
+    echo "         If you use encrypted password file to connect, it may complains an error." 1>&2
+fi
+
+# Check config directory.
+if ! [ -d "${config_dir}" ]; then
+    if ! [ -e "${config_dir}" ]; then
+        echo "ERROR: The config directory is not found." 1>&2
+        echo "       Please create a new config directory and retry." 1>&2
+        exit 1
+    else
+        echo "ERROR: The config directory is not a directory. Please check it or change the value of 'config_dir' in this script." 1>&2
+        exit 1
+    fi
+fi
+
+# Load default config.
+if ! [ -f "${config_dir}/${default_config}.sh" ]; then
+    echo "WARNING: The default config is not found. It is recommended to create a default config." 1>&2
+else
+    source ${config_dir}/${default_config}.sh
+fi
+
+# Load user specified config.
+if ! [ -f "${config_dir}/${_host}.sh" ]; then
+    echo "ERROR: The config for '${_host}' is not found." 1>&2
+    exit 1
+else
+    source ${config_dir}/${_host}.sh
+fi
+
+# Define utility functions.
+function _make_fifo_file() {
+    local tmp_file=`mktemp --dry-run`
+    if ! [ -e ${tmp_file} ]; then mkfifo ${tmp_file}; else echo "ERROR: Failed to create a FIFO file." 1>&2; exit 1; fi
+    echo ${tmp_file}
+}
+
+function _gen_expect_script() {
+    # The magic options below for `expect` is for updating the size of the terminal automatically, in order to make stuff like tmux work correctly.
+    echo "trap {
+               set rows [stty rows]
+               set cols [stty columns]
+               stty rows \$rows columns \$cols < \$spawn_out(slave,name)
+          } WINCH
+          spawn ssh -p ${ssh_port} ${username}@${hostname}
+          expect \"*password:\" {
+              send \"${1}\r\"
+          }
+          interact
+         "
+}
+
+# Connect to specified host.
+if [ "${ssh_auth_type}" = "none" ]; then
+    ssh -p ${ssh_port} ${username}@${hostname}
+elif [ "${ssh_auth_type}" = "password" ]; then
+    if ! [ -z "${password_str}" ]; then
+        # Use cleartext password string
+        _tmp_file=`_make_fifo_file`
+        _gen_expect_script "${password_str}" > ${_tmp_file} &
+        expect -f ${_tmp_file}
+    else
+        # Use password file
+        if [ -z "${password_file}" ]; then
+            echo "ERROR: 'password_str' and 'password_file' cannot be both empty." 1>&2
+            exit 1
+        else
+            # Check whether the password is encrypted
+            if ! [ "${password_file_encrypted}" = "true" -o "${password_file_encrypted}" = "false" ]; then
+                echo "ERROR: The value of 'password_file_encrypted' should be 'true' or 'false'." 1>&2
+                exit 1
+            fi
+            if ${password_file_encrypted}; then
+                # Use encrypted password file
+                _tmp_file=`_make_fifo_file`
+                _gen_expect_script "$(openssl rsautl -decrypt -inkey ${identity_file} -in ${password_file})" > ${_tmp_file} &
+                expect -f ${_tmp_file}
+            else
+                # Use cleartext password file
+                _tmp_file=`_make_fifo_file`
+                _gen_expect_script "$(cat ${password_file})" > ${_tmp_file} &
+                expect -f ${_tmp_file}
+            fi
+        fi
+    fi
+elif [ "${ssh_auth_type}" = "key" ]; then
+    ssh -p ${ssh_port} -i ${identity_file} ${username}@${hostname}
+elif [ "${ssh_auth_type}" = "custom" ]; then
+    _custom_ssh
+fi
+
