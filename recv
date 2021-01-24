@@ -16,9 +16,6 @@ if ! which expect > /dev/null; then
     echo "ERROR: Program 'expect' not found. It is necessary for entering password and operating sftp session automatically." 1>&2
     echo "       Usually you can find it in the software repository of your Linux distribution." 1>&2
     exit 1
-elif ! which openssl > /dev/null; then
-    echo "WARNING: Program 'openssl' not found. It is used to decrypt your encrypted password." 1>&2
-    echo "         If you use encrypted password file to connect, it may complains an error." 1>&2
 fi
 
 # Check config directory.
@@ -188,9 +185,9 @@ elif [ "${recv_auth_type}" = "password" ]; then
                 # Use encrypted password file
                 _tmp_file=`_make_fifo_file`
                 if [ "${recv_type}" = "scp" ]; then
-                    _gen_expect_script_scp "$(openssl rsautl -decrypt -inkey ${identity_file} -in ${password_file})" > ${_tmp_file} &
+                    _gen_expect_script_scp "$(_decrypt_password)" > ${_tmp_file} &
                 elif [ "${recv_type}" = "sftp" ]; then
-                    _gen_expect_script_sftp "password" "$(openssl rsautl -decrypt -inkey ${identity_file} -in ${password_file})" > ${_tmp_file} &
+                    _gen_expect_script_sftp "password" "$(_decrypt_password)" > ${_tmp_file} &
                 fi
                 expect -f ${_tmp_file}
             else

@@ -9,8 +9,9 @@
 # - 若为password，且password_str字段为空，则读取password_file指定的文件，并：
 #   - 若password_file_encrypted字段为false，则将password_file指定的文件内容作为
 #     明文密码自动输入。
-#   - 若password_file_encrypted字段为true，则使用命令`openssl rsautl -decrypt`解
-#     密（使用identity指定的文件作为私钥），并将解密结果作为明文密码自动输入。
+#   - 若password_file_encrypted字段为true，则使用命令`_decrypt_password`解密（默
+#     认使用gpg进行解密，用户可以修改`_decrypt_password`函数以自定义解密方式），
+#     并将解密结果作为明文密码自动输入。
 #   - 若为key，则使用identity_file指定的文件作为私钥文件用于身份验证。注意若
 #     ~/.ssh/config中已经指定了所需的身份验证文件，则不需选择key方式，可选择none
 #     方式。
@@ -59,5 +60,9 @@ function _custom_send() {
 function _custom_recv() {
     echo "ERROR: Not implemented." 1>&2
     exit 1
+}
+
+function _decrypt_password() {
+    echo $(gpg -q --decrypt ${password_file})
 }
 

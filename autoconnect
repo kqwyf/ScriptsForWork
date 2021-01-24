@@ -26,9 +26,6 @@ if ! which expect > /dev/null; then
     echo "ERROR: Program 'expect' not found. It is necessary for entering password automatically." 1>&2
     echo "       Usually you can find it in the software repository of your Linux distribution." 1>&2
     exit 1
-elif ! which openssl > /dev/null; then
-    echo "WARNING: Program 'openssl' not found. It is used to decrypt your encrypted password." 1>&2
-    echo "         If you use encrypted password file to connect, it may complains an error." 1>&2
 fi
 
 # Check config directory.
@@ -103,7 +100,7 @@ elif [ "${ssh_auth_type}" = "password" ]; then
             if ${password_file_encrypted}; then
                 # Use encrypted password file
                 _tmp_file=`_make_fifo_file`
-                _gen_expect_script "$(openssl rsautl -decrypt -inkey ${identity_file} -in ${password_file})" > ${_tmp_file} &
+                _gen_expect_script "$(_decrypt_password)" > ${_tmp_file} &
                 expect -f ${_tmp_file}
             else
                 # Use cleartext password file
