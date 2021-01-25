@@ -9,7 +9,10 @@ default_config="default"
 
 _host=${1}
 shift
-_files=$@
+_files=""
+for f in "$@"; do
+    _files="${_files} \"$f\""
+done
 
 # Check dependencies.
 if ! which expect > /dev/null; then
@@ -57,11 +60,12 @@ fi
 # Define utility functions.
 function _gen_file_args() {
     local file_args=""
-    for f in ${_files}; do
+    eval set -- ${_files}
+    for f in "$@"; do
         if [ ${f:0:1} = "/" ]; then # absolute path
-            file_args="${file_args} ${username}@${hostname}:${f}"
+            file_args="${file_args} \"${username}@${hostname}:${f}\""
         else # relative path
-            file_args="${file_args} ${username}@${hostname}:${remote_dir}/${f}"
+            file_args="${file_args} \"${username}@${hostname}:${remote_dir}/${f}\""
         fi
     done
     echo ${file_args}
@@ -118,7 +122,8 @@ function _gen_expect_script_sftp() {
               }"
 
     # Download files.
-    for f in ${_files}; do
+    eval set -- ${_files}
+    for f in "$@"; do
         echo "expect \"*sftp>\" {
                   send \"get ${f}\r\"
               }
@@ -136,9 +141,8 @@ function _gen_expect_script_scp() {
     # Parameters:
     # $1: the cleartext password string.
 
-    local file_args=`_gen_file_args`
     echo "set timeout -1
-          spawn scp -P ${recv_port} ${file_args} ./
+          spawn scp -P ${recv_port} $(_gen_file_args) ./
           expect_before \"*password:\" {
               send \"${1}\r\"
           }
@@ -148,13 +152,15 @@ function _gen_expect_script_scp() {
 
 # Download files.
 if [ "${recv_type}" = "custom" -o "${recv_auth_type}" = "custom" ]; then
-    _custom_recv ${_files}
+    eval set -- ${_files}
+    _custom_recv "$@"
     exit 0
 fi
 
 if [ "${recv_auth_type}" = "none" ]; then
     if [ "${recv_type}" = "scp" ]; then
-        scp -P ${recv_port} $(_gen_file_args) ./
+        eval set -- $(_gen_file_args)
+        scp -P ${recv_port} "$@" ./
     elif [ "${recv_type}" = "sftp" ]; then
         _tmp_file=`_make_fifo_file`
         _gen_expect_script_sftp "password" "" > ${_tmp_file} &
@@ -204,7 +210,8 @@ elif [ "${recv_auth_type}" = "password" ]; then
     fi
 elif [ "${recv_auth_type}" = "key" ]; then
     if [ "${recv_type}" = "scp" ]; then
-        scp -P ${recv_port} -i ${identity_file} $(_gen_file_args) ./
+        eval set -- $(_gen_file_args)
+        scp -P ${recv_port} -i ${identity_file} "$@" ./
     elif [ "${recv_type}" = "sftp" ]; then
         _tmp_file=`_make_fifo_file`
         _gen_expect_script_sftp "key" "${identity_file}" > ${_tmp_file} &

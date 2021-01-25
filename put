@@ -1,0 +1,67 @@
+#!/bin/bash
+
+config_file="${HOME}/Configs/putget.sh" # Below is the config template.
+
+###### Default Configurations ######
+remote_dir=${HOME}/remote
+prefix_n=3 # How long is the prefix we should pick from the current working
+           # directory to name the compressed file. Only for script `put`.
+maxn=99999 # How large can the number suffix be for the compressed file. Only
+           # for script `put`.
+####################################
+
+help_message="\
+    本脚本在服务器端使用，用于将文件或目录拷贝至服务器端远程文件夹，方便客户端下
+载。当给定参数为目录，或参数多于1个时，脚本将自动压缩所有文件，并以当前目录的若
+干前缀字符命名。若远程文件夹中存在同名文件，将自动加入数字序号以示区别。
+
+示例（其中a.txt为文件，exp为目录）：
+    put a.txt exp
+"
+
+if [ $# -le 0 ]; then
+    echo "${help_message}"
+    exit 0
+fi
+
+# Check config directory.
+if ! [ -f "${config_file}" ]; then
+    if ! [ -e "${config_file}" ]; then
+        echo "ERROR: The config file is not found." 1>&2
+        echo "       Please create a new config file and retry." 1>&2
+        exit 1
+    else
+        echo "ERROR: The specified config file is not a file. Please check it or change the value of 'config_file' in this script." 1>&2
+        exit 1
+    fi
+fi
+
+# Load config file.
+source ${config_file}
+
+if [ $# -ge 2 -o -d "${1}" ]; then
+    work_dir=`pwd`
+    name_prefix="${work_dir:0:${prefix_n}}"
+    name_suffix=""
+    if [ -e "${remote_dir}/${name_prefix}${name_suffix}.tgz" ]; then
+        for (( i=1; i<=${maxn}; i++ )) {
+            if ! [ -e "${remote_dir}/${name_prefix}${i}.tgz" ]; then
+                name_suffix=${i}
+                break
+            fi
+        }
+        if [ -z ${name_suffix} ]; then
+            echo "ERROR: All possible filenames are occupied. Please clean your remote directory." 1>&2
+            exit 1
+        fi
+    fi
+    tar czf "${remote_dir}/${name_prefix}${name_suffix}.tgz" "$@"
+    echo "INFO: Files are compressed into '${name_prefix}${name_suffix}.tgz' and sent."
+else
+    # $1 is the only file we should transfer.
+    if [ -d "${remote_dir}/${1}" ]; then
+        rm -rf "${remote_dir}/${1}"
+    fi
+    cp "${1}" "${remote_dir}/"
+fi
+

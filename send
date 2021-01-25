@@ -9,7 +9,10 @@ default_config="default"
 
 _host=${1}
 shift
-_files=$@
+_files=""
+for f in "$@"; do
+    _files="${_files} \"$f\""
+done
 
 # Check dependencies.
 if ! which expect > /dev/null; then
@@ -106,7 +109,8 @@ function _gen_expect_script_sftp() {
               }"
 
     # Send files.
-    for f in ${_files}; do
+    eval set -- ${_files}
+    for f in "$@"; do
         echo "expect \"*sftp>\" {
                   send \"put ${f}\r\"
               }
@@ -135,13 +139,15 @@ function _gen_expect_script_scp() {
 
 # Send files.
 if [ "${send_type}" = "custom" -o "${send_auth_type}" = "custom" ]; then
-    _custom_send ${_files}
+    eval set -- ${_files}
+    _custom_send "$@"
     exit 0
 fi
 
 if [ "${send_auth_type}" = "none" ]; then
     if [ "${send_type}" = "scp" ]; then
-        scp -P ${send_port} ${_files} ${username}@${hostname}:${remote_dir}
+        eval set -- ${_files}
+        scp -P ${send_port} "$@" ${username}@${hostname}:${remote_dir}
     elif [ "${send_type}" = "sftp" ]; then
         _tmp_file=`_make_fifo_file`
         _gen_expect_script_sftp "password" "" > ${_tmp_file} &
@@ -191,7 +197,8 @@ elif [ "${send_auth_type}" = "password" ]; then
     fi
 elif [ "${send_auth_type}" = "key" ]; then
     if [ "${send_type}" = "scp" ]; then
-        scp -P ${send_port} -i ${identity_file} ${_files} ${username}@${hostname}:${remote_dir}
+        eval set -- ${_files}
+        scp -P ${send_port} -i ${identity_file} "$@" ${username}@${hostname}:${remote_dir}
     elif [ "${send_type}" = "sftp" ]; then
         _tmp_file=`_make_fifo_file`
         _gen_expect_script_sftp "key" "${identity_file}" > ${_tmp_file} &

@@ -1,0 +1,50 @@
+#!/bin/bash
+
+config_file="${HOME}/Configs/putget.sh" # Below is the config template.
+
+###### Default Configurations ######
+remote_dir=${HOME}/remote
+prefix_n=3 # How long is the prefix we should pick from the current working
+           # directory to name the compressed file. Only for script `put`.
+maxn=99999 # How large can the number suffix be for the compressed file. Only
+           # for script `put`.
+####################################
+
+help_message="\
+    本脚本在服务器端使用，用于获取客户端发送至服务器端远程文件夹的文件或目录。指
+定的文件或目录将被拷贝至当前目录下。
+
+示例（其中a.txt为文件，exp为目录）：
+    get a.txt exp
+"
+
+if [ $# -le 0 ]; then
+    echo "${help_message}"
+    exit 0
+fi
+
+# Check config directory.
+if ! [ -f "${config_file}" ]; then
+    if ! [ -e "${config_file}" ]; then
+        echo "ERROR: The config file is not found." 1>&2
+        echo "       Please create a new config file and retry." 1>&2
+        exit 1
+    else
+        echo "ERROR: The specified config file is not a file. Please check it or change the value of 'config_file' in this script." 1>&2
+        exit 1
+    fi
+fi
+
+# Load config file.
+source ${config_file}
+
+for f; do
+    if ! [ -e "${remote_dir}/${f}" ]; then
+        echo "WARNING: '${f}' is not found. Skipped." 1>&2
+    elif [ -d "${remote_dir}/${f}" ]; then
+        cp -r "${remote_dir}/${f}" ./
+    else
+        cp "${remote_dir}/${f}" ./
+    fi
+done
+
