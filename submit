@@ -150,7 +150,7 @@ if ! [ -z "${config_dir}" ]; then
     current_work_dir=`pwd`
     for f in `ls "${config_dir}" | grep "\.sh$" | sort`; do
         filename=${f%.*} # remove the extension
-        keyword=${filename##*-} # remove the number
+        keyword=${filename#*-} # remove the number
         if [[ "${current_work_dir}" == *"${keyword}"* ]]; then
             . ${config_dir}/${f} # load the configuration file
             break
