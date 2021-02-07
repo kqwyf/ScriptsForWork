@@ -28,6 +28,17 @@
 # 则远程目录默认为"/home/${username}"。特别地，若username为root，则远程目录默认
 # 为"/root"。
 # 接收（下载）时，远程文件路径可使用以remote_dir为基准的相对路径。
+#
+# 通过字段mirror_protocol指定用于镜像本地目录与远程目录的协议。脚本默认使用lftp
+# 程序进行镜像，故所支持的协议即为lftp支持的协议。此外，若设置为custom，则脚本将
+# 调用命令`_custom_upload`和`_custom_download`进行镜像操作。
+# 镜像操作使用的身份验证方式由字段send_auth_type和recv_auth_type指定。
+# 通过字段dir_map指定本地目录与远程目录间的映射关系，同时可以为每个映射关系指定
+# 一个忽略配置文件，每行是一个glob，用于指定该目录中的哪些文件/目录不需镜像。指
+# 定目录时，需以'/'结尾。
+# 例如：
+# *.log
+# .git/
 
 hostname=0.0.0.0 # IP或域名
 username=$(whoami) # 远程主机用户名
@@ -46,19 +57,43 @@ recv_auth_type=${ssh_auth_type} # 可选项："none"，"password", "key", "custo
 
 send_type=custom # 可选项："scp", "sftp", "custom"
 recv_type=${send_type} # 可选项："scp", "sftp", "custom"
+mirror_protocol=sftp # 可选项："sftp"等, 以及"custom"。支持协议详见lftp说明文档
+lftp_n_threads=8 # 指定lftp并行上传/下载的文件数，过小会影响镜像操作的速度
+
+# 本地目录与远程目录的映射关系
+# 每行格式：本地目录（绝对路径）:远程目录:忽略配置（无则留空，但冒号应保留）
+# 如：${HOME}/project:project:${HOME}/project/exclude.txt
+dir_map="
+"
 
 function _custom_ssh() {
-    echo "ERROR: Not implemented." 1>&2
+    echo "ERROR: Function '_custom_ssh' is not implemented." 1>&2
     exit 1
 }
 
 function _custom_send() {
-    echo "ERROR: Not implemented." 1>&2
+    echo "ERROR: Function '_custom_send' is not implemented." 1>&2
     exit 1
 }
 
 function _custom_recv() {
-    echo "ERROR: Not implemented." 1>&2
+    echo "ERROR: Function '_custom_recv' is not implemented." 1>&2
+    exit 1
+}
+
+function _custom_upload() {
+    # 在撰写这一函数时，你可以使用变量${local_dir}, ${target_dir}和
+    # ${exclude_glob_file}来获取与当前目录对应的本地工作目录，对应的远程目录和忽
+    # 略配置文件。
+    echo "ERROR: Function '_custom_upload' is not implemented." 1>&2
+    exit 1
+}
+
+function _custom_download() {
+    # 在撰写这一函数时，你可以使用变量${local_dir}, ${target_dir}和
+    # ${exclude_glob_file}来获取与当前目录对应的本地工作目录，对应的远程目录和忽
+    # 略配置文件。
+    echo "ERROR: Function '_custom_download' is not implemented." 1>&2
     exit 1
 }
 

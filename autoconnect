@@ -84,8 +84,8 @@ elif [ "${ssh_auth_type}" = "password" ]; then
     if ! [ -z "${password_str}" ]; then
         # Use cleartext password string
         _tmp_file=`_make_fifo_file`
-        _gen_expect_script "${password_str}" > ${_tmp_file} &
-        expect -f ${_tmp_file}
+        _gen_expect_script "${password_str}" \
+            | expect
     else
         # Use password file
         if [ -z "${password_file}" ]; then
@@ -100,13 +100,13 @@ elif [ "${ssh_auth_type}" = "password" ]; then
             if ${password_file_encrypted}; then
                 # Use encrypted password file
                 _tmp_file=`_make_fifo_file`
-                _gen_expect_script "$(_decrypt_password)" > ${_tmp_file} &
-                expect -f ${_tmp_file}
+                _gen_expect_script "$(_decrypt_password)" \
+                    | expect
             else
                 # Use cleartext password file
                 _tmp_file=`_make_fifo_file`
-                _gen_expect_script "$(cat ${password_file})" > ${_tmp_file} &
-                expect -f ${_tmp_file}
+                _gen_expect_script "$(cat ${password_file})" \
+                    | expect
             fi
         fi
     fi

@@ -71,12 +71,6 @@ function _gen_file_args() {
     echo ${file_args}
 }
 
-function _make_fifo_file() {
-    local tmp_file=`mktemp --dry-run`
-    if ! [ -e ${tmp_file} ]; then mkfifo ${tmp_file}; else echo "ERROR: Failed to create a FIFO file." 1>&2; exit 1; fi
-    echo ${tmp_file}
-}
-
 function _gen_expect_script_sftp() {
     # Generate script for logging in an sftp session and downloading files automatically.
     # Here the if-else statement can be regarded as conditional compiling statement.
@@ -162,20 +156,17 @@ if [ "${recv_auth_type}" = "none" ]; then
         eval set -- $(_gen_file_args)
         scp -P ${recv_port} "$@" ./
     elif [ "${recv_type}" = "sftp" ]; then
-        _tmp_file=`_make_fifo_file`
-        _gen_expect_script_sftp "password" "" > ${_tmp_file} &
-        expect -f ${_tmp_file}
+        _gen_expect_script_sftp "password" "" \
+            | expect
     fi
 elif [ "${recv_auth_type}" = "password" ]; then
     if ! [ -z "${password_str}" ]; then
         # Use cleartext password string
-        _tmp_file=`_make_fifo_file`
         if [ "${recv_type}" = "scp" ]; then
-            _gen_expect_script_scp "${password_str}" > ${_tmp_file} &
+            _gen_expect_script_scp "${password_str}"
         elif [ "${recv_type}" = "sftp" ]; then
-            _gen_expect_script_sftp "password" "${password_str}" > ${_tmp_file} &
-        fi
-        expect -f ${_tmp_file}
+            _gen_expect_script_sftp "password" "${password_str}"
+        fi | expect
     else
         # Use password file
         if [ -z "${password_file}" ]; then
@@ -189,22 +180,18 @@ elif [ "${recv_auth_type}" = "password" ]; then
             fi
             if ${password_file_encrypted}; then
                 # Use encrypted password file
-                _tmp_file=`_make_fifo_file`
                 if [ "${recv_type}" = "scp" ]; then
-                    _gen_expect_script_scp "$(_decrypt_password)" > ${_tmp_file} &
+                    _gen_expect_script_scp "$(_decrypt_password)"
                 elif [ "${recv_type}" = "sftp" ]; then
-                    _gen_expect_script_sftp "password" "$(_decrypt_password)" > ${_tmp_file} &
-                fi
-                expect -f ${_tmp_file}
+                    _gen_expect_script_sftp "password" "$(_decrypt_password)"
+                fi | expect
             else
                 # Use cleartext password file
-                _tmp_file=`_make_fifo_file`
                 if [ "${recv_type}" = "scp" ]; then
-                    _gen_expect_script_scp "$(cat ${password_file})" > ${_tmp_file} &
+                    _gen_expect_script_scp "$(cat ${password_file})"
                 elif [ "${recv_type}" = "sftp" ]; then
-                    _gen_expect_script_sftp "password" "$(cat ${password_file})" > ${_tmp_file} &
-                fi
-                expect -f ${_tmp_file}
+                    _gen_expect_script_sftp "password" "$(cat ${password_file})"
+                fi | expect
             fi
         fi
     fi
@@ -214,8 +201,8 @@ elif [ "${recv_auth_type}" = "key" ]; then
         scp -P ${recv_port} -i ${identity_file} "$@" ./
     elif [ "${recv_type}" = "sftp" ]; then
         _tmp_file=`_make_fifo_file`
-        _gen_expect_script_sftp "key" "${identity_file}" > ${_tmp_file} &
-        expect -f ${_tmp_file}
+        _gen_expect_script_sftp "key" "${identity_file}" \
+            | expect
     fi
 fi
 

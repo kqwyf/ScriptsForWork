@@ -1,0 +1,142 @@
+#!/bin/bash
+
+# 本脚本依赖lftp mirror命令向服务器同步文件夹。
+# 所同步的文件夹为运行脚本时所在的工作目录，本地目录与远程目录的对应关系在配置文
+# 件中的'dir_map'字段定义。
+
+config_dir=""
+default_config="default"
+
+_host=${1}
+
+# Check dependencies.
+if ! which lftp > /dev/null; then
+    echo "ERROR: Program 'lftp' not found. It is necessary for mirroring your directory." 1>&2
+    echo "       Usually you can find it in the software repository of your Linux distribution." 1>&2
+    exit 1
+fi
+
+# Check config directory.
+if ! [ -d "${config_dir}" ]; then
+    if ! [ -e "${config_dir}" ]; then
+        echo "ERROR: The config directory is not found." 1>&2
+        echo "       Please create a new config directory and retry." 1>&2
+        exit 1
+    else
+        echo "ERROR: The config directory is not a directory. Please check it or change the value of 'config_dir' in this script." 1>&2
+        exit 1
+    fi
+fi
+
+# Load default config.
+if ! [ -f "${config_dir}/${default_config}.sh" ]; then
+    echo "WARNING: The default config is not found. It is recommended to create a default config." 1>&2
+else
+    source ${config_dir}/${default_config}.sh
+fi
+
+# Load user specified config.
+if ! [ -f "${config_dir}/${_host}.sh" ]; then
+    echo "ERROR: The config for '${_host}' is not found." 1>&2
+    exit 1
+else
+    source ${config_dir}/${_host}.sh
+fi
+
+# Preprocess the config.
+if [ -z "${remote_dir}" ]; then
+    if [ "${username}" = "root" ]; then
+        remote_dir="/root"
+    else
+        remote_dir="/home/${username}"
+    fi
+fi
+
+# Define utility functions.
+function _gen_lftp_script() {
+    # Generate script for logging to the server and mirroring the current directory.
+    #
+    # Parameters:
+    # $1: authentication mode, either "password" or (TODO)"key"
+    # $2: if $1 is "password", $2 is the cleartext password string. if empty, let user enter it.
+    #     TODO: if $1 is "key", $2 is the identity file.
+    # $3: remote directory.
+    # $4: exclude-glob file.
+
+    if [ "$1" = "key" ]; then
+        password_arg=""
+    else
+        password_arg="--password \"$2\""
+    fi
+
+    if [ -z "$4" ]; then
+        exclude_arg=""
+    else
+        exclude_arg="--exclude-glob-from \"$4\""
+    fi
+
+    relative_dir=$(realpath --relative-to="${local_dir}" `pwd`)
+    echo "open --user ${username} ${password_arg} -p ${send_port} ${mirror_protocol}://${hostname}"
+    echo "mirror -P ${lftp_n_threads} -cnv --no-symlinks ${exclude_arg} -R . \"${remote_dir}/$3/${relative_dir}\""
+}
+
+
+# Start mirror.
+
+# Find the remote directory and the exclude glob file.
+_tmp_str=$(echo "${dir_map}" |
+    awk -v P="`pwd`" 'NF {
+        split($0, a, ":");
+        if (P ~ "^" a[1] ".*") {
+            print $0;
+            exit 0;
+        }
+    }')
+if [ -z "${_tmp_str}" ]; then
+    echo "ERROR: The current working directory is not mapped to a remote directory." 1>&2
+    exit 1;
+fi
+local_dir=$(echo ${_tmp_str} | cut -d ':' -f 1)
+target_dir=$(echo ${_tmp_str} | cut -d ':' -f 2)
+exclude_glob_file=$(echo ${_tmp_str} | cut -d ':' -f 3)
+
+if [ "${mirror_protocol}" = "custom" -o "${send_auth_type}" = "custom" ]; then
+    _custom_upload
+    exit 0
+fi
+
+if [ "${send_auth_type}" = "none" ]; then
+    _gen_lftp_script "password" "" "${target_dir}" "${exclude_glob_file}" \
+        | lftp -f "${_tmp_file}"
+elif [ "${send_auth_type}" = "password" ]; then
+    if ! [ -z "${password_str}" ]; then
+        # Use cleartext password string
+        _gen_lftp_script "password" "${password_str}" "${target_dir}" "${exclude_glob_file}" \
+            | lftp
+    else
+        # Use password file
+        if [ -z "${password_file}" ]; then
+            echo "ERROR: 'password_str' and 'password_file' cannot be both empty." 1>&2
+            exit 1
+        else
+            # Check whether the password is encrypted
+            if ! [ "${password_file_encrypted}" = "true" -o "${password_file_encrypted}" = "false" ]; then
+                echo "ERROR: The value of 'password_file_encrypted' should be 'true' or 'false'." 1>&2
+                exit 1
+            fi
+            if ${password_file_encrypted}; then
+                # Use encrypted password file
+                _gen_lftp_script "password" "$(_decrypt_password)" "${target_dir}" "${exclude_glob_file}" \
+                    | lftp
+            else
+                # Use cleartext password file
+                _gen_lftp_script "password" "$(cat ${password_file})" "${target_dir}" "${exclude_glob_file}" \
+                    | lftp
+            fi
+        fi
+    fi
+elif [ "${send_auth_type}" = "key" ]; then
+    echo "ERROR: Mirroring for authentication type 'key' is not implemented." 1>&2
+    exit 1
+fi
+
