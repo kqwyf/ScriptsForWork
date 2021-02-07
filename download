@@ -77,7 +77,7 @@ function _gen_lftp_script() {
 
     relative_dir=$(realpath --relative-to="${local_dir}" `pwd`)
     echo "open --user ${username} ${password_arg} -p ${recv_port} ${mirror_protocol}://${hostname}"
-    echo "mirror --dry-run -P ${lftp_n_threads} -cnv --no-symlinks ${exclude_arg} \"${remote_dir}/$3/${relative_dir}\" ."
+    echo "mirror -P ${lftp_n_threads} -cnv -L ${exclude_arg} \"${remote_dir}/$3/${relative_dir}\" ."
 }
 
 
