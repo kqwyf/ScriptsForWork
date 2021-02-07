@@ -16,7 +16,7 @@
 #
 # 脚本原理见配置文件模板。
 
-config_dir=""
+config_dir="${HOME}/Configs/hosts"
 default_config="default"
 
 _host=${1}
