@@ -4,7 +4,7 @@
 # 所同步的文件夹为运行脚本时所在的工作目录，本地目录与远程目录的对应关系在配置文
 # 件中的'dir_map'字段定义。
 
-config_dir="${HOME}/Configs/hosts"
+config_dir=""
 default_config="default"
 
 _host=${1}
