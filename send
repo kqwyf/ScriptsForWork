@@ -4,7 +4,7 @@
 # 见'autoconnect'脚本。
 # 支持scp、sftp及用户自定义传输方式。
 
-config_dir=""
+config_dir="${HOME}/Configs/hosts"
 default_config="default"
 
 _host=${1}
