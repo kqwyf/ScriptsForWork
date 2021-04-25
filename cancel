@@ -46,27 +46,44 @@ if [ "$1" = "ALL" ]; then
     echo "WARNING: ALL THE JOBS will be cancelled after 5 seconds."
     echo "         Press Ctrl+C to exit."
     sleep 5
-    for job_id in `squeue -o '%64i' -u $(whoami) | tail -n +2`; do
+    for job_id in `squeue -o '%i' -u $(whoami) | tail -n +2`; do
         scancel ${job_id}
     done
     exit 0
 fi
 
-found_jobs=`squeue -o '%64i %64j' -u $(whoami) | tail -n +2 | awk -v names_str="$*" '
+found_jobs=`squeue -o '%i %j' -u $(whoami) | tail -n +2 | awk -v names_str="$*" '
     BEGIN {
         split(names_str, names, " ");
         arr_len = 0;
-    } {
         for (i in names) {
-            if ($1 == names[i] || $2 == names[i]) {
+            name_cnt[i] = 0;
+        }
+    } {
+        split($1, job_id_arr, "_");
+        job_id = job_id_arr[0];
+        for (i in names) {
+            if (job_id == names[i]) {
+                result[arr_len] = job_id;
+                name_cnt[i]++;
+                arr_len++;
+                next;
+            } else if ($1 == names[i] || $2 == names[i]) {
                 result[arr_len] = $1;
-                delete names[i];
+                name_cnt[i]++;
                 arr_len++;
                 next;
             }
         }
     } END {
-        if (length(names) > 0) {
+        all_matched = 1;
+        for (i in name_cnt) {
+            if (name_cnt[i] == 0) {
+                all_matched = 0;
+                break;
+            }
+        }
+        if (all_matched == 0) {
             for (i in names) {
                 if (i == 1) {
                     printf names[i]
@@ -86,6 +103,8 @@ if [ `echo "${found_jobs}" | tail -n 1` = "false" ]; then
     echo "ERROR: Job(s) `echo "${found_jobs}" | head -n 1` doesn't exist. Exit." >&2
     exit 1
 fi
+
+found_jobs="$(echo "${found_jobs}" | sort | uniq)" # some jobs, like array jobs, may be matched for several times
 
 scancel ${found_jobs}
 
