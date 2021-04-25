@@ -57,14 +57,14 @@ function _gen_lftp_script() {
     # Generate script for logging to the server and mirroring the current directory.
     #
     # Parameters:
-    # $1: authentication mode, either "password" or (TODO)"key"
+    # $1: authentication mode, either "password" or "key"
     # $2: if $1 is "password", $2 is the cleartext password string. if empty, let user enter it.
-    #     TODO: if $1 is "key", $2 is the identity file.
+    #     if $1 is "key", $2 is the identity file.
     # $3: remote directory.
     # $4: exclude-glob file.
 
     if [ "$1" = "key" ]; then
-        password_arg=""
+        password_arg="--password \"\"" # provide an empty password for key authentication
     else
         password_arg="--password \"$2\""
     fi
@@ -76,6 +76,9 @@ function _gen_lftp_script() {
     fi
 
     relative_dir=$(realpath --relative-to="${local_dir}" `pwd`)
+    if [ "$1" = "key" -a "${mirror_protocol}" = "sftp" ]; then
+        echo "set sftp:connect-program \"ssh -a -x -i $2\""
+    fi
     echo "open --user ${username} ${password_arg} -p ${recv_port} ${mirror_protocol}://${hostname}"
     echo "mirror -P ${lftp_n_threads} -cnv --no-symlinks --no-umask ${exclude_arg} \"${remote_dir}/$3/${relative_dir}\" ."
 }
@@ -107,7 +110,7 @@ fi
 
 if [ "${recv_auth_type}" = "none" ]; then
     _gen_lftp_script "password" "" "${target_dir}" "${exclude_glob_file}" \
-        | lftp -f "${_tmp_file}"
+        | lftp
 elif [ "${recv_auth_type}" = "password" ]; then
     if ! [ -z "${password_str}" ]; then
         # Use cleartext password string
@@ -136,7 +139,11 @@ elif [ "${recv_auth_type}" = "password" ]; then
         fi
     fi
 elif [ "${recv_auth_type}" = "key" ]; then
-    echo "ERROR: Mirroring for authentication type 'key' is not implemented." 1>&2
-    exit 1
+    if ! [ "${mirror_protocol}" = "sftp" ]; then
+        echo "ERROR: Mirroring for authentication type 'key' while protocol is not 'sftp' is not implemented." 1>&2
+        exit 1
+    fi
+    _gen_lftp_script "key" "${identity_file}" "${target_dir}" "${exclude_glob_file}" \
+        | lftp
 fi
 
